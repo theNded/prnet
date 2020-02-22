@@ -46,8 +46,9 @@ def knn(x, k):
     xx = torch.sum(x ** 2, dim=1, keepdim=True)
     distance = -xx - inner - xx.transpose(2, 1).contiguous()
 
-    idx = distance.topk(k=k, dim=-1)[1]  # (batch_size, num_points, k)
-    return idx
+    # https://github.com/WangYueFt/prnet/issues/2
+    v, idx = distance.sort(dim=-1)  # (batch_size, num_points, k)
+    return idx[:, :, :k]
 
 
 def get_graph_feature(x, k=20):
@@ -446,15 +447,15 @@ class SVDHead(nn.Module):
         src_corr = torch.matmul(tgt, scores.transpose(2, 1).contiguous())
 
         src_centered = src - src.mean(dim=2, keepdim=True)
-
         src_corr_centered = src_corr - src_corr.mean(dim=2, keepdim=True)
+        print(src_centered.size(), src_corr_centered.size())
 
-        H = torch.matmul(src_centered, src_corr_centered.transpose(2, 1).contiguous()).cpu()
+        H = torch.matmul(src_centered, src_corr_centered.transpose(2, 1)).cpu()
 
         R = []
 
         for i in range(src.size(0)):
-            u, s, v = torch.svd(H[i])
+            u, s, v = torch.svd(H[i] + torch.ones(3) * 1e-5)
             r = torch.matmul(v, u.transpose(1, 0)).contiguous()
             r_det = torch.det(r).item()
             diag = torch.from_numpy(np.array([[1.0, 0, 0],
@@ -493,7 +494,7 @@ class KeyPointNet(nn.Module):
 
         src_keypoints = torch.gather(src, dim=2, index=src_keypoints_idx)
         tgt_keypoints = torch.gather(tgt, dim=2, index=tgt_keypoints_idx)
-        
+
         src_embedding = torch.gather(src_embedding, dim=2, index=src_embedding_idx)
         tgt_embedding = torch.gather(tgt_embedding, dim=2, index=tgt_embedding_idx)
         return src_keypoints, tgt_keypoints, src_embedding, tgt_embedding
@@ -701,7 +702,7 @@ class PRNet(nn.Module):
                                                                                                       for d in data]
             loss, feature_alignment_loss, cycle_consistency_loss, scale_consensus_loss,\
             rotation_ab_pred, translation_ab_pred = self._train_one_batch(src, tgt, rotation_ab, translation_ab,
-                                                                                opt)
+                                                                          opt)
             batch_size = src.size(0)
             num_examples += batch_size
             total_loss = total_loss + loss * batch_size
@@ -714,6 +715,7 @@ class PRNet(nn.Module):
             rotations_ab_pred.append(rotation_ab_pred.detach().cpu().numpy())
             translations_ab_pred.append(translation_ab_pred.detach().cpu().numpy())
             eulers_ab.append(euler_ab.cpu().numpy())
+
         avg_loss = total_loss / num_examples
         avg_feature_alignment_loss = total_feature_alignment_loss / num_examples
         avg_cycle_consistency_loss = total_cycle_consistency_loss / num_examples
@@ -723,7 +725,8 @@ class PRNet(nn.Module):
         translations_ab = np.concatenate(translations_ab, axis=0)
         rotations_ab_pred = np.concatenate(rotations_ab_pred, axis=0)
         translations_ab_pred = np.concatenate(translations_ab_pred, axis=0)
-        eulers_ab = np.degrees(np.concatenate(eulers_ab, axis=0))
+
+        eulers_ab = np.degrees(np.concatenate(eulers_ab, axis=0)).squeeze(1)
         eulers_ab_pred = npmat2euler(rotations_ab_pred)
         r_ab_mse = np.mean((eulers_ab-eulers_ab_pred)**2)
         r_ab_rmse = np.sqrt(r_ab_mse)
@@ -731,6 +734,7 @@ class PRNet(nn.Module):
         t_ab_mse = np.mean((translations_ab-translations_ab_pred)**2)
         t_ab_rmse = np.sqrt(t_ab_mse)
         t_ab_mae = np.mean(np.abs(translations_ab-translations_ab_pred))
+
         r_ab_r2_score = r2_score(eulers_ab, eulers_ab_pred)
         t_ab_r2_score = r2_score(translations_ab, translations_ab_pred)
         info = {'arrow': 'A->B',
@@ -789,7 +793,7 @@ class PRNet(nn.Module):
         translations_ab = np.concatenate(translations_ab, axis=0)
         rotations_ab_pred = np.concatenate(rotations_ab_pred, axis=0)
         translations_ab_pred = np.concatenate(translations_ab_pred, axis=0)
-        eulers_ab = np.degrees(np.concatenate(eulers_ab, axis=0))
+        eulers_ab = np.degrees(np.concatenate(eulers_ab, axis=0)).squeeze(1)
         eulers_ab_pred = npmat2euler(rotations_ab_pred)
         r_ab_mse = np.mean((eulers_ab - eulers_ab_pred) ** 2)
         r_ab_rmse = np.sqrt(r_ab_mse)

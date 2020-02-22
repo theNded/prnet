@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-
 from __future__ import print_function
+import open3d as o3d
 import os
 import gc
 import argparse
@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import MultiStepLR
-from data import ModelNet40
+from data import ModelNet40, ThreeDMatchPairDataset03
 import numpy as np
 from torch.utils.data import DataLoader
 from model import PRNet
@@ -47,7 +47,8 @@ def train(args, net, train_loader, test_loader):
     for epoch in range(args.epochs):
         scheduler.step()
         info_train = net._train_one_epoch(epoch=epoch, train_loader=train_loader, opt=opt)
-        info_test = net._test_one_epoch(epoch=epoch, test_loader=test_loader)
+        with torch.no_grad():
+            info_test = net._test_one_epoch(epoch=epoch, test_loader=test_loader)
 
         if info_test_best is None or info_test_best['loss'] > info_test['loss']:
             info_test_best = info_test
@@ -126,12 +127,17 @@ def main():
                         help='Num of points to use')
     parser.add_argument('--n_subsampled_points', type=int, default=768, metavar='N',
                         help='Num of subsampled points to use')
-    parser.add_argument('--dataset', type=str, default='modelnet40', choices=['modelnet40'], metavar='N',
+    parser.add_argument('--dataset', type=str, default='3dmatch', choices=['modelnet40', '3dmatch'], metavar='N',
                         help='dataset to use')
     parser.add_argument('--rot_factor', type=float, default=4, metavar='N',
                         help='Divided factor of rotation')
     parser.add_argument('--model_path', type=str, default='', metavar='N',
                         help='Pretrained model path')
+
+    # additional
+    parser.add_argument('--dataset_path', type=str, default='')
+    parser.add_argument('--voxel_size', type=float, default=0.05)
+    parser.add_argument('--rotation_range', type=float, default=360.0)
 
     args = parser.parse_args()
     torch.backends.cudnn.deterministic = True
@@ -152,6 +158,17 @@ def main():
                                             partition='test', gaussian_noise=args.gaussian_noise,
                                             unseen=args.unseen, rot_factor=args.rot_factor),
                                  batch_size=args.test_batch_size, shuffle=False, drop_last=False, num_workers=6)
+    elif args.dataset == '3dmatch':
+        train_loader = DataLoader(
+            ThreeDMatchPairDataset03(dataset_path=args.dataset_path, phase='train',
+                                     num_points=args.n_points, voxel_size=args.voxel_size,
+                                     rotation_range=args.rotation_range),
+            batch_size=args.batch_size, shuffle=True, drop_last=True)
+        test_loader = DataLoader(
+            ThreeDMatchPairDataset03(dataset_path=args.dataset_path, phase='val',
+                                     num_points=args.n_points, voxel_size=args.voxel_size,
+                                     rotation_range=args.rotation_range),
+            batch_size=args.test_batch_size, shuffle=False, drop_last=False)
     else:
         raise Exception("not implemented")
 
