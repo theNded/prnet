@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import r2_score
-from util import transform_point_cloud, npmat2euler, quat2mat
+from prnet.util_prnet import transform_point_cloud, npmat2euler, quat2mat
 
 
 def clones(module, N):
@@ -448,7 +448,7 @@ class SVDHead(nn.Module):
 
         src_centered = src - src.mean(dim=2, keepdim=True)
         src_corr_centered = src_corr - src_corr.mean(dim=2, keepdim=True)
-        print(src_centered.size(), src_corr_centered.size())
+        # print(src_centered.size(), src_corr_centered.size())
 
         H = torch.matmul(src_centered, src_corr_centered.transpose(2, 1)).cpu()
 
@@ -577,7 +577,7 @@ class PRNet(nn.Module):
         self.logger = Logger(args)
         self.discount_factor = args.discount_factor
         self.acpnet = ACPNet(args)
-        self.model_path = args.model_path
+        self.model_path = args.prnet_model_path
         self.feature_alignment_loss = args.feature_alignment_loss
         self.cycle_consistency_loss = args.cycle_consistency_loss
 
